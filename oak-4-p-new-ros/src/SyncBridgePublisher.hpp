@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <deque>
 #include <chrono>
 #include <cstdint>
@@ -192,9 +193,10 @@ void SyncBridgePublisher<RosMsg>::advertise(int queueSize, std::false_type) {
 
 template <class RosMsg>
 void SyncBridgePublisher<RosMsg>::advertise(int queueSize, std::true_type) {
+    const size_t imageQueueDepth = static_cast<size_t>(std::max(queueSize, 3));
     rmw_qos_profile_t qos_sensor_data = {
         .history = RMW_QOS_POLICY_HISTORY_KEEP_LAST,
-        .depth = 3,
+        .depth = imageQueueDepth,
         .reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT,
         .durability = RMW_QOS_POLICY_DURABILITY_VOLATILE,
         .deadline = {0, 0},
