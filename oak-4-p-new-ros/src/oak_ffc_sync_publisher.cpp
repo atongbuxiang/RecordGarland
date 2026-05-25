@@ -22,6 +22,7 @@
 #include "depthai_bridge/ImageConverter.hpp"
 #include "depthai_bridge/ImuConverter.hpp"
 #include "SyncBridgePublisher.hpp"
+#include "ros2_oak_ffc_sync/oak_dataset_recorder.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 
 struct oak_ffc_ros_opts_t
@@ -38,6 +39,15 @@ struct oak_ffc_ros_opts_t
     std::vector<std::string> cam_board_sockets;
     int sync_threshold;
     int isp_scale;
+    bool record_enable;
+    std::string record_output_dir;
+    std::string record_session_name;
+    std::string record_imu_topic;
+    std::string record_pose_topic;
+    std::string record_config_path;
+    std::string record_video_fourcc;
+    std::string record_video_extension;
+    bool record_wait_for_imu_and_pose;
 };
 
 std::map<std::string, std::tuple<dai::node::MonoCamera::Properties::SensorResolution, int, int>> mono_res_opts = {
@@ -273,6 +283,15 @@ private:
     node_->declare_parameter("cam_board_sockets", ros_opts.cam_board_sockets);
     node_->declare_parameter("sync_threshold", ros_opts.sync_threshold);
     node_->declare_parameter("isp_scale", ros_opts.isp_scale);
+    node_->declare_parameter("record_enable", false);
+    node_->declare_parameter("record_output_dir", std::string("~/oak_datasets"));
+    node_->declare_parameter("record_session_name", std::string(""));
+    node_->declare_parameter("record_imu_topic", std::string("/imu"));
+    node_->declare_parameter("record_pose_topic", std::string("/ov_msckf/odomimu"));
+    node_->declare_parameter("record_config_path", std::string(""));
+    node_->declare_parameter("record_video_fourcc", std::string("MJPG"));
+    node_->declare_parameter("record_video_extension", std::string(".avi"));
+    node_->declare_parameter("record_wait_for_imu_and_pose", true);
 
     node_->get_parameter("camera_name", ros_opts.camera_name);
     ros_opts.cameraParamUri = node_->get_parameter("camera_param_uri").as_string();
@@ -286,6 +305,15 @@ private:
     ros_opts.cam_board_sockets = node_->get_parameter("cam_board_sockets").as_string_array();
     ros_opts.sync_threshold = node_->get_parameter("sync_threshold").as_int();
     ros_opts.isp_scale = node_->get_parameter("isp_scale").as_int();
+    ros_opts.record_enable = node_->get_parameter("record_enable").as_bool();
+    ros_opts.record_output_dir = node_->get_parameter("record_output_dir").as_string();
+    ros_opts.record_session_name = node_->get_parameter("record_session_name").as_string();
+    ros_opts.record_imu_topic = node_->get_parameter("record_imu_topic").as_string();
+    ros_opts.record_pose_topic = node_->get_parameter("record_pose_topic").as_string();
+    ros_opts.record_config_path = node_->get_parameter("record_config_path").as_string();
+    ros_opts.record_video_fourcc = node_->get_parameter("record_video_fourcc").as_string();
+    ros_opts.record_video_extension = node_->get_parameter("record_video_extension").as_string();
+    ros_opts.record_wait_for_imu_and_pose = node_->get_parameter("record_wait_for_imu_and_pose").as_bool();
 
     if (ros_opts.isp_scale < 1) {
         std::cerr << "\033[31m" << "isp_scale must be >= 1." << "\033[0m" << '\n';
@@ -356,6 +384,39 @@ private:
                         std::bind(&dai::rosBridge::ImageConverter::toRosMsgRawPtr, converter_.get(), std::placeholders::_1, std::placeholders::_2),
                         ros_opts.fps,
                         cameraInfo);
+        if (ros_opts.record_enable) {
+            std::vector<ros2_oak_ffc_sync::OakDatasetRecorder::CameraConfig> recorder_cameras;
+            for (const auto& socket_name : ros_opts.cam_board_sockets) {
+                auto it = cam_socket_opts.find(socket_name);
+                if (it == cam_socket_opts.end()) {
+                    continue;
+                }
+                recorder_cameras.push_back({
+                    socket_name,
+                    std::get<0>(it->second),
+                    width,
+                    height
+                });
+            }
+            dataset_recorder_ = std::make_unique<ros2_oak_ffc_sync::OakDatasetRecorder>(
+                node_,
+                recorder_cameras,
+                ros_opts.record_output_dir,
+                ros_opts.record_session_name,
+                ros_opts.record_imu_topic,
+                ros_opts.record_pose_topic,
+                ros_opts.record_config_path,
+                static_cast<double>(ros_opts.fps),
+                ros_opts.record_video_fourcc,
+                ros_opts.record_video_extension,
+                ros_opts.record_wait_for_imu_and_pose);
+            cam_publish_->setMessageGroupCallback(
+                [this](const std::shared_ptr<dai::MessageGroup>& group) {
+                    if (dataset_recorder_) {
+                        dataset_recorder_->onCameraGroup(group);
+                    }
+                });
+        }
         // camPublish.addPublisherCallback();
         cam_publish_->startPublisherThread();
     } catch(const std::exception& e) {
@@ -378,6 +439,7 @@ private:
     std::unique_ptr<dai::rosBridge::BridgePublisher<sensor_msgs::msg::Imu, dai::IMUData>> imu_publish_;
     std::unique_ptr<dai::rosBridge::ImageConverter> converter_;
     std::unique_ptr<dai::rosBridge::SyncBridgePublisher<sensor_msgs::msg::Image>> cam_publish_;
+    std::unique_ptr<ros2_oak_ffc_sync::OakDatasetRecorder> dataset_recorder_;
 };
 
 #ifndef OAK_FFC_SYNC_COMPONENT_ONLY

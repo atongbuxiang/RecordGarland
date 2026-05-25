@@ -14,6 +14,7 @@
 
 #include <future>
 #include <atomic>
+#include <functional>
 
 #include "boost/make_shared.hpp"
 #include "boost/shared_ptr.hpp"
@@ -64,6 +65,7 @@ template <class RosMsg>
 class SyncBridgePublisher {
    public:
     using ConvertFunc = std::function<ImageMsgs::Image(std::shared_ptr<dai::ImgFrame>, const sensor_msgs::msg::CameraInfo&)>;
+    using MessageGroupCallback = std::function<void(const std::shared_ptr<dai::MessageGroup>&)>;
 
     using CustomPublisher = typename rclcpp::Publisher<RosMsg>::SharedPtr;
 
@@ -103,6 +105,8 @@ class SyncBridgePublisher {
 
     void startPublisherThread();
 
+    void setMessageGroupCallback(MessageGroupCallback callback);
+
     ~SyncBridgePublisher();
 
    private:
@@ -132,6 +136,7 @@ class SyncBridgePublisher {
     bool _isImageMessage = false;  // used to enable camera info manager
     bool _lazyPublisher = true;
     std::atomic<bool> _running{false};
+    MessageGroupCallback _messageGroupCallback;
     // uint32_t fps = 0;
     // time_t start_ = time(NULL);
     std::mutex opMsgs_mutex;
@@ -306,6 +311,11 @@ void SyncBridgePublisher<RosMsg>::image_converter(std::string camera_name, std::
 }
 
 template <class RosMsg>
+void SyncBridgePublisher<RosMsg>::setMessageGroupCallback(MessageGroupCallback callback) {
+    _messageGroupCallback = std::move(callback);
+}
+
+template <class RosMsg>
 void SyncBridgePublisher<RosMsg>::recordFrameAndPrintFps(const std::string& camera_name) {
     std::lock_guard<std::mutex> lock(fps_mutex);
 
@@ -335,6 +345,10 @@ void SyncBridgePublisher<RosMsg>::publishHelper(std::shared_ptr<dai::MessageGrou
     std::map<std::string, int> infoSubCount_map, mainSubCount_map;
     std::map<std::string, RosMsg> opMsgs;
     std::vector<std::future<void>> results;
+
+    if (_messageGroupCallback) {
+        _messageGroupCallback(inDataPtr);
+    }
 
     for (auto& rosTopic: _rosTopics) {
         std::string camera_name = rosTopic.first;

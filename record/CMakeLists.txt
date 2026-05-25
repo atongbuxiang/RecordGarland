@@ -6,6 +6,7 @@ find_package(cv_bridge REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
 add_executable(oak_dataset_recorder
@@ -25,6 +26,7 @@ ament_target_dependencies(oak_dataset_recorder
   cv_bridge
   nav_msgs
   rclcpp
+  rclcpp_components
   sensor_msgs
 )
 

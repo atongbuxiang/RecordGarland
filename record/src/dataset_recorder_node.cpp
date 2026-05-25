@@ -4,9 +4,11 @@
 #include <filesystem>
 #include <iomanip>
 #include <limits>
-#include <opencv2/videoio.hpp>
 #include <sstream>
 #include <stdexcept>
+
+#include <opencv2/videoio.hpp>
+#include <rclcpp_components/register_node_macro.hpp>
 
 #include <record/recorder_utils.hpp>
 
@@ -15,7 +17,8 @@ using namespace std::chrono_literals;
 
 namespace record {
 
-DatasetRecorder::DatasetRecorder() : Node("oak_dataset_recorder") {
+DatasetRecorder::DatasetRecorder(const rclcpp::NodeOptions &options) : Node("oak_dataset_recorder", options) {
+  wait_for_imu_and_pose_.store(declare_parameter<bool>("wait_for_imu_and_pose", true));
   camera_names_ = declare_parameter<std::vector<std::string>>("camera_names", {"CAM_A", "CAM_B", "CAM_C", "CAM_D"});
   camera_topics_ =
       declare_parameter<std::vector<std::string>>("camera_topics", {"/CAM_A/image", "/CAM_B/image", "/CAM_C/image", "/CAM_D/image"});
@@ -27,7 +30,7 @@ DatasetRecorder::DatasetRecorder() : Node("oak_dataset_recorder") {
     session_name_ = make_default_session_name();
   }
 
-  sync_threshold_sec_ = declare_parameter<double>("sync_threshold_ms", 10.0) * 1e-3;
+  sync_threshold_sec_ = declare_parameter<double>("sync_threshold_ms", 50.0) * 1e-3;
   pose_lookahead_sec_ = declare_parameter<double>("pose_lookahead_ms", 20.0) * 1e-3;
   pose_wait_timeout_ = std::chrono::duration<double, std::milli>(declare_parameter<double>("pose_wait_timeout_ms", 150.0));
   pose_buffer_sec_ = declare_parameter<double>("pose_buffer_sec", 10.0);
@@ -159,6 +162,9 @@ void DatasetRecorder::setup_subscribers() {
 }
 
 void DatasetRecorder::image_callback(size_t camera_index, const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
+  if (!recording_started_.load()) {
+    return;
+  }
   const double stamp = stamp_to_seconds(msg->header.stamp);
   const uint64_t frame_index = camera_frame_counts_.at(camera_index).fetch_add(1, std::memory_order_relaxed);
   camera_fps_counts_.at(camera_index).fetch_add(1, std::memory_order_relaxed);
@@ -174,8 +180,13 @@ void DatasetRecorder::image_callback(size_t camera_index, const sensor_msgs::msg
 
 void DatasetRecorder::imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr &msg) {
   const double stamp = stamp_to_seconds(msg->header.stamp);
+  have_imu_.store(true);
   imu_fps_count_.fetch_add(1, std::memory_order_relaxed);
+  start_recording_if_ready_locked();
   std::lock_guard<std::mutex> lock(imu_file_mutex_);
+  if (!recording_started_.load()) {
+    return;
+  }
   if (!imu_first_) {
     imu_file_ << ",\n";
   }
@@ -207,7 +218,25 @@ void DatasetRecorder::odom_callback(const nav_msgs::msg::Odometry::ConstSharedPt
     }
     latest_pose_stamp_ = pose.stamp;
   }
+  have_pose_.store(true);
+  start_recording_if_ready_locked();
   pose_cv_.notify_all();
+}
+
+void DatasetRecorder::start_recording_if_ready_locked() {
+  if (recording_started_.load()) {
+    return;
+  }
+  if (wait_for_imu_and_pose_.load() && (!have_imu_.load() || !have_pose_.load())) {
+    if (!announced_waiting_.exchange(true)) {
+      RCLCPP_INFO(get_logger(), "waiting for imu and pose before recording");
+    }
+    return;
+  }
+  recording_started_.store(true);
+  if (announced_waiting_.load()) {
+    RCLCPP_INFO(get_logger(), "recording started");
+  }
 }
 
 void DatasetRecorder::try_form_frame_groups_locked() {
@@ -224,7 +253,9 @@ void DatasetRecorder::try_form_frame_groups_locked() {
       max_stamp = std::max(max_stamp, stamp);
     }
 
-    if (max_stamp - min_stamp <= sync_threshold_sec_) {
+    const double span_sec = max_stamp - min_stamp;
+    const uint64_t span_us = static_cast<uint64_t>(std::llround(span_sec * 1e6));
+    if (span_sec <= sync_threshold_sec_) {
       PendingFrameGroup group;
       group.group_index = grouped_frame_count_++;
       group.created_at = std::chrono::steady_clock::now();
@@ -237,9 +268,22 @@ void DatasetRecorder::try_form_frame_groups_locked() {
         sum += ref.stamp;
       }
       group.group_stamp = sum / static_cast<double>(kNumCameras);
+      grouped_span_samples_.fetch_add(1, std::memory_order_relaxed);
+      grouped_span_sum_us_.fetch_add(span_us, std::memory_order_relaxed);
+      uint64_t current_max = grouped_span_max_us_.load(std::memory_order_relaxed);
+      while (current_max < span_us &&
+             !grouped_span_max_us_.compare_exchange_weak(current_max, span_us, std::memory_order_relaxed, std::memory_order_relaxed)) {
+      }
+      grouped_frame_fps_count_.fetch_add(1, std::memory_order_relaxed);
       pending_groups_.push(group);
     } else {
       unmatched_frame_count_.fetch_add(1, std::memory_order_relaxed);
+      unmatched_span_samples_.fetch_add(1, std::memory_order_relaxed);
+      unmatched_span_sum_us_.fetch_add(span_us, std::memory_order_relaxed);
+      uint64_t current_max = unmatched_span_max_us_.load(std::memory_order_relaxed);
+      while (current_max < span_us &&
+             !unmatched_span_max_us_.compare_exchange_weak(current_max, span_us, std::memory_order_relaxed, std::memory_order_relaxed)) {
+      }
       pending_camera_frames_.at(min_index).pop_front();
     }
   }
@@ -314,6 +358,7 @@ void DatasetRecorder::write_frame_group(const PendingFrameGroup &group, const st
 void DatasetRecorder::print_fps() {
   std::ostringstream line;
   line << "[dataset fps]";
+  line << " recording=" << (recording_started_.load() ? "1" : "0");
   for (size_t i = 0; i < kNumCameras; ++i) {
     const auto count = camera_fps_counts_.at(i).exchange(0, std::memory_order_relaxed);
     line << " " << camera_names_.at(i) << "=" << count;
@@ -323,9 +368,26 @@ void DatasetRecorder::print_fps() {
     }
   }
   line << " imu=" << imu_fps_count_.exchange(0, std::memory_order_relaxed);
+  line << " grouped=" << grouped_frame_fps_count_.exchange(0, std::memory_order_relaxed);
   const auto unmatched = unmatched_frame_count_.exchange(0, std::memory_order_relaxed);
   if (unmatched != 0) {
     line << " unmatched=" << unmatched;
+  }
+  const auto grouped_samples = grouped_span_samples_.exchange(0, std::memory_order_relaxed);
+  const auto grouped_sum_us = grouped_span_sum_us_.exchange(0, std::memory_order_relaxed);
+  const auto grouped_max_us = grouped_span_max_us_.exchange(0, std::memory_order_relaxed);
+  const auto unmatched_samples = unmatched_span_samples_.exchange(0, std::memory_order_relaxed);
+  const auto unmatched_sum_us = unmatched_span_sum_us_.exchange(0, std::memory_order_relaxed);
+  const auto unmatched_max_us = unmatched_span_max_us_.exchange(0, std::memory_order_relaxed);
+  if (grouped_samples != 0) {
+    line << " grouped_span_ms_avg=" << std::fixed << std::setprecision(2)
+         << (static_cast<double>(grouped_sum_us) / static_cast<double>(grouped_samples)) / 1000.0
+         << " grouped_span_ms_max=" << static_cast<double>(grouped_max_us) / 1000.0;
+  }
+  if (unmatched_samples != 0) {
+    line << " unmatched_span_ms_avg=" << std::fixed << std::setprecision(2)
+         << (static_cast<double>(unmatched_sum_us) / static_cast<double>(unmatched_samples)) / 1000.0
+         << " unmatched_span_ms_max=" << static_cast<double>(unmatched_max_us) / 1000.0;
   }
   RCLCPP_INFO(get_logger(), "%s", line.str().c_str());
 }
@@ -382,3 +444,5 @@ void DatasetRecorder::write_calibration_json() {
 }
 
 } // namespace record
+
+RCLCPP_COMPONENTS_REGISTER_NODE(record::DatasetRecorder)

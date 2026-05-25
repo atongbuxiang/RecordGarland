@@ -22,6 +22,15 @@ def generate_launch_description():
     cam_board_sockets = LaunchConfiguration("cam_board_sockets", default="[CAM_A, CAM_B, CAM_C, CAM_D]")
     sync_threshold = LaunchConfiguration("sync_threshold", default="10")
     isp_scale = LaunchConfiguration("isp_scale", default="3")
+    record_enable = LaunchConfiguration("record_enable", default="false")
+    record_output_dir = LaunchConfiguration("record_output_dir", default="./oak_datasets")
+    record_session_name = LaunchConfiguration("record_session_name", default="")
+    record_imu_topic = LaunchConfiguration("record_imu_topic", default="/imu")
+    record_pose_topic = LaunchConfiguration("record_pose_topic", default="/ov_msckf/odomimu")
+    record_config_path = LaunchConfiguration("record_config_path", default="")
+    record_video_fourcc = LaunchConfiguration("record_video_fourcc", default="MJPG")
+    record_video_extension = LaunchConfiguration("record_video_extension", default=".avi")
+    record_wait_for_imu_and_pose = LaunchConfiguration("record_wait_for_imu_and_pose", default="true")
 
     camera_model_arg = DeclareLaunchArgument(
         "camera_model", default_value=TextSubstitution(text="OAK-FFC-4P")
@@ -106,6 +115,17 @@ def generate_launch_description():
     isp_scale_arg = DeclareLaunchArgument(
         "isp_scale", default_value=isp_scale
     )
+    record_enable_arg = DeclareLaunchArgument("record_enable", default_value=record_enable)
+    record_output_dir_arg = DeclareLaunchArgument("record_output_dir", default_value=record_output_dir)
+    record_session_name_arg = DeclareLaunchArgument("record_session_name", default_value=record_session_name)
+    record_imu_topic_arg = DeclareLaunchArgument("record_imu_topic", default_value=record_imu_topic)
+    record_pose_topic_arg = DeclareLaunchArgument("record_pose_topic", default_value=record_pose_topic)
+    record_config_path_arg = DeclareLaunchArgument("record_config_path", default_value=record_config_path)
+    record_video_fourcc_arg = DeclareLaunchArgument("record_video_fourcc", default_value=record_video_fourcc)
+    record_video_extension_arg = DeclareLaunchArgument("record_video_extension", default_value=record_video_extension)
+    record_wait_for_imu_and_pose_arg = DeclareLaunchArgument(
+        "record_wait_for_imu_and_pose", default_value=record_wait_for_imu_and_pose
+    )
 
     oak_ffc_node = Node(
         package="ros2_oak_ffc_sync",
@@ -125,7 +145,16 @@ def generate_launch_description():
             {"imu_hz": imu_hz},
             {"cam_board_sockets": cam_board_sockets},
             {"sync_threshold": sync_threshold},
-            {"isp_scale": isp_scale}
+            {"isp_scale": isp_scale},
+            {"record_enable": record_enable},
+            {"record_output_dir": record_output_dir},
+            {"record_session_name": record_session_name},
+            {"record_imu_topic": record_imu_topic},
+            {"record_pose_topic": record_pose_topic},
+            {"record_config_path": record_config_path},
+            {"record_video_fourcc": record_video_fourcc},
+            {"record_video_extension": record_video_extension},
+            {"record_wait_for_imu_and_pose": record_wait_for_imu_and_pose},
         ],
         on_exit=Shutdown()
     )
@@ -162,6 +191,15 @@ def generate_launch_description():
         cam_board_sockets_arg,
         sync_threshold_arg,
         isp_scale_arg,
+        record_enable_arg,
+        record_output_dir_arg,
+        record_session_name_arg,
+        record_imu_topic_arg,
+        record_pose_topic_arg,
+        record_config_path_arg,
+        record_video_fourcc_arg,
+        record_video_extension_arg,
+        record_wait_for_imu_and_pose_arg,
         oak_ffc_node,
         rviz_node
     ])

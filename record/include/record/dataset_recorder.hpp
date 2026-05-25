@@ -14,6 +14,7 @@
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/node_options.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 
@@ -25,7 +26,7 @@ namespace record {
 
 class DatasetRecorder : public rclcpp::Node, public VideoWriterEvents {
 public:
-  DatasetRecorder();
+  explicit DatasetRecorder(const rclcpp::NodeOptions &options = rclcpp::NodeOptions());
   ~DatasetRecorder() override;
 
   void record_camera_frame(size_t camera_index, uint64_t frame_index, double stamp) override;
@@ -36,6 +37,7 @@ private:
   void setup_output_files();
   void setup_writers();
   void setup_subscribers();
+  void start_recording_if_ready_locked();
 
   void image_callback(size_t camera_index, const sensor_msgs::msg::Image::ConstSharedPtr &msg);
   void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr &msg);
@@ -79,7 +81,14 @@ private:
   std::array<std::atomic<uint64_t>, kNumCameras> camera_frame_counts_{};
   std::array<std::atomic<uint64_t>, kNumCameras> camera_fps_counts_{};
   std::atomic<uint64_t> imu_fps_count_{0};
+  std::atomic<uint64_t> grouped_frame_fps_count_{0};
   std::atomic<uint64_t> unmatched_frame_count_{0};
+  std::atomic<uint64_t> grouped_span_samples_{0};
+  std::atomic<uint64_t> grouped_span_sum_us_{0};
+  std::atomic<uint64_t> grouped_span_max_us_{0};
+  std::atomic<uint64_t> unmatched_span_samples_{0};
+  std::atomic<uint64_t> unmatched_span_sum_us_{0};
+  std::atomic<uint64_t> unmatched_span_max_us_{0};
 
   mutable std::mutex sync_mutex_;
   std::array<std::deque<SyncFrameRef>, kNumCameras> pending_camera_frames_;
@@ -101,6 +110,11 @@ private:
   bool imu_first_{true};
   bool frames_first_{true};
   bool camera_frames_first_{true};
+  std::atomic<bool> wait_for_imu_and_pose_{true};
+  std::atomic<bool> recording_started_{false};
+  std::atomic<bool> have_imu_{false};
+  std::atomic<bool> have_pose_{false};
+  std::atomic<bool> announced_waiting_{false};
 };
 
 } // namespace record

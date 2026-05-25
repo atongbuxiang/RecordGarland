@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 3.10.2)  # CMake version in Ubuntu 18.04 LTS
 project(ros2_oak_ffc_sync VERSION 1.0.0 LANGUAGES CXX C)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 add_compile_options(-g)
@@ -12,10 +12,10 @@ if(POLICY CMP0057)
 endif()
 
 set(_opencv_version 4)
-find_package(OpenCV 4 QUIET COMPONENTS imgproc highgui)
+find_package(OpenCV 4 QUIET COMPONENTS imgproc imgcodecs videoio highgui)
 if(NOT OpenCV_FOUND)
   set(_opencv_version 3)
-  find_package(OpenCV 3 REQUIRED COMPONENTS imgproc highgui)
+  find_package(OpenCV 3 REQUIRED COMPONENTS imgproc imgcodecs videoio highgui)
 endif()
 
 find_package(camera_info_manager REQUIRED)
@@ -23,18 +23,21 @@ find_package(cv_bridge REQUIRED)
 find_package(depthai CONFIG REQUIRED)
 find_package(depthai_ros_msgs REQUIRED)
 find_package(depthai_bridge REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(stereo_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 set(dependencies
   camera_info_manager
   cv_bridge
   depthai_ros_msgs
   depthai_bridge
+  nav_msgs
   rclcpp
   rclcpp_components
   sensor_msgs
@@ -46,10 +49,13 @@ set(dependencies
 macro(dai_add_node_ros2 node_name node_src)
   add_executable("${node_name}" "${node_src}")
 
-  target_link_libraries("${node_name}"
+target_link_libraries("${node_name}"
                         depthai::core
                         opencv_imgproc
-                        opencv_highgui)
+                        opencv_imgcodecs
+                        opencv_videoio
+                        opencv_highgui
+                        yaml-cpp)
 
   ament_target_dependencies("${node_name}"
                             ${dependencies})
@@ -65,13 +71,18 @@ include_directories(
 )
 
 dai_add_node_ros2(oak_ffc_sync src/oak_ffc_sync_publisher.cpp)
+target_sources(oak_ffc_sync PRIVATE src/oak_dataset_recorder.cpp)
 
 add_library(oak_ffc_sync_component SHARED src/oak_ffc_sync_publisher.cpp)
+target_sources(oak_ffc_sync_component PRIVATE src/oak_dataset_recorder.cpp)
 target_compile_definitions(oak_ffc_sync_component PRIVATE OAK_FFC_SYNC_COMPONENT_ONLY)
 target_link_libraries(oak_ffc_sync_component
                       depthai::core
                       opencv_imgproc
-                      opencv_highgui)
+                      opencv_imgcodecs
+                      opencv_videoio
+                      opencv_highgui
+                      yaml-cpp)
 ament_target_dependencies(oak_ffc_sync_component ${dependencies})
 rclcpp_components_register_nodes(oak_ffc_sync_component "OakFfcSyncNode")
 

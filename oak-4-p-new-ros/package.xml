@@ -20,6 +20,7 @@
   <depend>depthai_ros_msgs</depend>
   <depend>depthai_bridge</depend>
   <depend>depthai_descriptions</depend>
+  <depend>nav_msgs</depend>
   <depend>image_transport</depend>
   <depend>libopencv-dev</depend>
   <depend>ros_environment</depend>
@@ -27,6 +28,7 @@
   <depend>std_msgs</depend>
   <depend>stereo_msgs</depend>
   <depend>vision_msgs</depend>
+  <depend>yaml-cpp</depend>
   <depend>foxglove_msgs</depend>
   <depend>rviz_imu_plugin</depend>
 
