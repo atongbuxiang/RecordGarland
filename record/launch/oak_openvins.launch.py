@@ -145,7 +145,7 @@ def generate_launch_description():
             DeclareLaunchArgument("isp_scale", default_value="3"),
             DeclareLaunchArgument("record_enable", default_value="true"),
             DeclareLaunchArgument("record_output_dir", default_value="./oak_datasets"),
-            DeclareLaunchArgument("record_session_name", default_value="test"),
+            DeclareLaunchArgument("record_session_name", default_value="demo"),
             DeclareLaunchArgument("record_imu_topic", default_value="/imu"),
             DeclareLaunchArgument("record_pose_topic", default_value="/ov_msckf/odomimu"),
             DeclareLaunchArgument("record_video_fourcc", default_value="MJPG"),
