@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(record)
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_pytest REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -34,9 +35,18 @@ install(TARGETS oak_dataset_recorder
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/oak_dataset_replay_openvins.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch
   FILES_MATCHING PATTERN "*.py"
+)
+
+ament_add_pytest_test(test_oak_dataset_replay_openvins
+  test/test_oak_dataset_replay_openvins.py
 )
 
 ament_package()
