@@ -150,6 +150,40 @@ std::array<double, 4> yaml_vector4_to_array(const YAML::Node& node) {
     return values;
 }
 
+std::array<double, 16> invert_se3_matrix(const std::array<double, 16>& T) {
+    std::array<double, 16> inverse{};
+
+    inverse[0] = T[0];
+    inverse[1] = T[4];
+    inverse[2] = T[8];
+    inverse[4] = T[1];
+    inverse[5] = T[5];
+    inverse[6] = T[9];
+    inverse[8] = T[2];
+    inverse[9] = T[6];
+    inverse[10] = T[10];
+
+    const double tx = T[3];
+    const double ty = T[7];
+    const double tz = T[11];
+    inverse[3] = -(inverse[0] * tx + inverse[1] * ty + inverse[2] * tz);
+    inverse[7] = -(inverse[4] * tx + inverse[5] * ty + inverse[6] * tz);
+    inverse[11] = -(inverse[8] * tx + inverse[9] * ty + inverse[10] * tz);
+    inverse[15] = 1.0;
+
+    return inverse;
+}
+
+std::array<double, 16> yaml_transform_to_imu_cam(const YAML::Node& cam, const std::string& cam_key) {
+    if (cam["T_imu_cam"]) {
+        return yaml_matrix4x4_to_array(cam["T_imu_cam"]);
+    }
+    if (cam["T_cam_imu"]) {
+        return invert_se3_matrix(yaml_matrix4x4_to_array(cam["T_cam_imu"]));
+    }
+    throw std::runtime_error(cam_key + " missing T_imu_cam or T_cam_imu");
+}
+
 std::vector<double> yaml_sequence_to_vector(const YAML::Node& node, const std::string& field_name) {
     if (!node || !node.IsSequence()) {
         throw std::runtime_error("expected sequence for " + field_name);
@@ -589,7 +623,7 @@ void OakDatasetRecorder::write_calibration_json() {
         if (resolution.size() != 2) {
             throw std::runtime_error(cam_key + ".resolution must contain width and height");
         }
-        const auto T = yaml_matrix4x4_to_array(cam["T_imu_cam"]);
+        const auto T = yaml_transform_to_imu_cam(cam, cam_key);
 
         calibration_file_ << "{\n";
         calibration_file_ << "      \"topic\":\"" << json_escape(topic) << "\",\n";
