@@ -364,6 +364,9 @@ private:
 
     std::map<std::string, std::string> rosTocips;
     for (auto &board_socket_name: ros_opts.cam_board_sockets) {
+        if (board_socket_name != "CAM_A" && board_socket_name != "CAM_B") {
+            continue;
+        }
         auto opts = cam_socket_opts.find(board_socket_name);
         if (opts == cam_socket_opts.end())
             continue;
