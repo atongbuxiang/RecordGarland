@@ -198,11 +198,11 @@ void SyncBridgePublisher<RosMsg>::advertise(int queueSize, std::false_type) {
 
 template <class RosMsg>
 void SyncBridgePublisher<RosMsg>::advertise(int queueSize, std::true_type) {
-    const size_t imageQueueDepth = static_cast<size_t>(std::max(queueSize, 3));
+    const size_t imageQueueDepth = 1;
     rmw_qos_profile_t qos_sensor_data = {
         .history = RMW_QOS_POLICY_HISTORY_KEEP_LAST,
         .depth = imageQueueDepth,
-        .reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT,
+        .reliability = RMW_QOS_POLICY_RELIABILITY_RELIABLE,
         .durability = RMW_QOS_POLICY_DURABILITY_VOLATILE,
         .deadline = {0, 0},
         .lifespan = {0, 0},
@@ -276,15 +276,9 @@ void SyncBridgePublisher<RosMsg>::startPublisherThread() {
             // auto daiDataPtr = _daiMessageQueue->get<dai::MessageGroup>();
             auto daiDataPtr = _daiMessageQueue->tryGet<dai::MessageGroup>();
             if(daiDataPtr == nullptr) {
-                messageCounter++;
-                if(messageCounter > 2000000) {
-                    messageCounter = 0;
-                }
+                // Keep latest-frame semantics without burning a CPU core between camera groups.
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
-            }
-
-            if(messageCounter != 0) {
-                messageCounter = 0;
             }
             publishHelper(daiDataPtr);
             // fps++;
